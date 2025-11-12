@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link' // ← ADDED
 import { MapPin, Calendar, Pencil, Trash2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -103,7 +104,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-2 items-center">
             <Button
               variant="outline"
               className="flex-1 gap-2"
@@ -121,6 +122,14 @@ export function ProjectCard({ project }: ProjectCardProps) {
             >
               <Trash2 className="h-4 w-4" />
             </Button>
+
+            {/* ADDED: Go button that deep-links to the map with this project preselected */}
+            <Link
+              href={`/dashboard/map?project=${encodeURIComponent(String(project.id))}`}
+              className="ml-auto"
+            >
+              <Button>Go</Button>
+            </Link>
           </div>
         </div>
       </Card>

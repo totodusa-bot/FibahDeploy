@@ -11,6 +11,7 @@ import { Eye, EyeOff, Crosshair, CheckCircle, X, AlertCircle } from "lucide-reac
 import { createClient } from "@/lib/supabase/client";
 import NoteForm from "./NoteForm";
 import ProjectSelector from "./ProjectSelector";
+import { useSearchParams } from "next/navigation"; // INSERT: read ?project
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
 
@@ -22,6 +23,13 @@ type NotePayload = { notes: string; photos: string[]; assetType: string | null }
 
 export default function MapInterfaceClient() {
   const supabase = React.useMemo(() => createClient(), []);
+  const searchParams = useSearchParams(); // INSERT
+
+  // INSERT: read the project id from URL (?project= or ?projectId=)
+  const initialProjectId = React.useMemo(
+    () => (searchParams?.get("project") || searchParams?.get("projectId") || ""),
+    [searchParams]
+  );
 
   const [projects, setProjects] = React.useState<any[]>([]);
   const [selectedProject, setSelectedProject] = React.useState<any | null>(null);
@@ -60,6 +68,7 @@ export default function MapInterfaceClient() {
 
       if (alive) {
         setProjects(found ?? []);
+        // keep original behavior: default to first project; URL preselect (below) will override if present
         setSelectedProject((prev: any | null) => prev ?? (found?.[0] ?? null));
         if (!found) console.warn("No projects returned. Check table name or RLS.");
       }
@@ -69,6 +78,14 @@ export default function MapInterfaceClient() {
       alive = false;
     };
   }, [supabase]);
+
+  // INSERT: After projects load, if URL provided a project id, preselect it.
+  React.useEffect(() => {
+    if (!projects.length || !initialProjectId) return;
+    if (selectedProject && String(selectedProject.id) === String(initialProjectId)) return;
+    const match = projects.find((p: any) => String(p.id) === String(initialProjectId));
+    if (match) setSelectedProject(match);
+  }, [projects, initialProjectId, selectedProject]);
 
   // Load notes (tolerant to casing) — includes asset_type
   React.useEffect(() => {

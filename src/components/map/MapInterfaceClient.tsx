@@ -11,7 +11,7 @@ import { Eye, EyeOff, Crosshair, CheckCircle, X, AlertCircle } from "lucide-reac
 import { createClient } from "@/lib/supabase/client";
 import NoteForm from "./NoteForm";
 import ProjectSelector from "./ProjectSelector";
-import { useSearchParams } from "next/navigation"; // INSERT: read ?project
+import { useSearchParams, useRouter, usePathname } from "next/navigation"; // URL sync + read ?project
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
 
@@ -23,9 +23,11 @@ type NotePayload = { notes: string; photos: string[]; assetType: string | null }
 
 export default function MapInterfaceClient() {
   const supabase = React.useMemo(() => createClient(), []);
-  const searchParams = useSearchParams(); // INSERT
+  const searchParams = useSearchParams();               // read current query
+  const router = useRouter();                           // update query without reload
+  const pathname = usePathname();                       // current route path
 
-  // INSERT: read the project id from URL (?project= or ?projectId=)
+  // Read the project id from URL (?project= or ?projectId=)
   const initialProjectId = React.useMemo(
     () => (searchParams?.get("project") || searchParams?.get("projectId") || ""),
     [searchParams]
@@ -42,6 +44,9 @@ export default function MapInterfaceClient() {
   const [showExistingNotes, setShowExistingNotes] = React.useState(false);
   const [locationError, setLocationError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
+
+  // Track if we've already applied the URL preselect once
+  const urlPreselectApplied = React.useRef(false);
 
   // Load projects (tolerant to casing; no fragile user filters)
   React.useEffect(() => {
@@ -68,7 +73,7 @@ export default function MapInterfaceClient() {
 
       if (alive) {
         setProjects(found ?? []);
-        // keep original behavior: default to first project; URL preselect (below) will override if present
+        // default to first project; URL preselect (below) will override once if present
         setSelectedProject((prev: any | null) => prev ?? (found?.[0] ?? null));
         if (!found) console.warn("No projects returned. Check table name or RLS.");
       }
@@ -79,13 +84,17 @@ export default function MapInterfaceClient() {
     };
   }, [supabase]);
 
-  // INSERT: After projects load, if URL provided a project id, preselect it.
+  // After projects load, if URL provided a project id, preselect it ONCE.
   React.useEffect(() => {
+    if (urlPreselectApplied.current) return;                 
     if (!projects.length || !initialProjectId) return;
-    if (selectedProject && String(selectedProject.id) === String(initialProjectId)) return;
+
     const match = projects.find((p: any) => String(p.id) === String(initialProjectId));
-    if (match) setSelectedProject(match);
-  }, [projects, initialProjectId, selectedProject]);
+    if (match) {
+      setSelectedProject(match);
+      urlPreselectApplied.current = true;                    
+    }
+  }, [projects, initialProjectId]); // no selectedProject in deps → don't fight the dropdown
 
   // Load notes (tolerant to casing) — includes asset_type
   React.useEffect(() => {
@@ -217,12 +226,28 @@ export default function MapInterfaceClient() {
     setIsSaving(false);
   }
 
+  // Helper to sync the dropdown selection into the URL (no history spam)
+  const updateProjectParam = React.useCallback((proj: any | null) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (proj?.id) params.set("project", String(proj.id));
+    else params.delete("project");
+    const next = params.toString();
+    router.replace(next ? `${pathname}?${next}` : pathname);
+  }, [router, pathname, searchParams]);
+
   return (
     <div className="h-full flex flex-col relative">
       {/* Top controls */}
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex-1 min-w-[220px]">
-          <ProjectSelector projects={projects} selectedProject={selectedProject} onSelect={setSelectedProject} />
+          <ProjectSelector
+            projects={projects}
+            selectedProject={selectedProject}
+            onSelect={(p) => {                    // sync state + URL
+              setSelectedProject(p);
+              updateProjectParam(p);
+            }}
+          />
         </div>
         <div className="flex items-center gap-2">
           {selectedProject && (

@@ -18,7 +18,7 @@ interface MapViewProps {
     project_name: string;
     notes: string;
     created_by_name: string;
-    asset_type?: string | null; // ← NEW (optional for backward compatibility)
+    asset_type?: string | null;
   }>;
 }
 
@@ -59,7 +59,12 @@ export default function MapView({
   const dragMarkerRef = React.useRef<LeafletMarker | null>(null);
   const notesLayerRef = React.useRef<L.LayerGroup | null>(null);
 
-  // keep the latest handler for Leaflet events
+  // Base layers
+  const osmRef = React.useRef<L.TileLayer | null>(null);
+  const esriRef = React.useRef<L.TileLayer | null>(null);
+  const currentBaseRef = React.useRef<"osm" | "sat">("osm");
+
+  // latest click handler
   const onMapClickRef = React.useRef(onMapClick);
   React.useEffect(() => {
     onMapClickRef.current = onMapClick;
@@ -72,35 +77,138 @@ export default function MapView({
     const map = L.map(containerRef.current, {
       center: [userLocation.lat, userLocation.lng],
       zoom: 16,
-      minZoom: 10,
-      maxZoom: 19,
+      minZoom: 3,
+      maxZoom: 19,          // clamp to provider native max
+      zoomSnap: 1,
+      zoomDelta: 1,
       zoomControl: true,
+      preferCanvas: true,
+      worldCopyJump: false, // avoid wrap “teleport”
     });
+    mapRef.current = map;
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    // --- Street (OSM) ---
+    const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxNativeZoom: 19,
       maxZoom: 19,
+      noWrap: true, // prevent world repeats that can misalign when switching
+      bounds: [[-85, -180], [85, 180]],
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
 
+    // --- Satellite (Esri World Imagery): NOTE {z}/{y}/{x} (not x/y) ---
+    const esriSat = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      {
+        maxNativeZoom: 19, // many areas top out at ~19; clamp here
+        maxZoom: 19,
+        noWrap: true,
+        bounds: [[-85, -180], [85, 180]],
+        updateWhenIdle: true,
+        attribution:
+          "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+      }
+    );
+
+    osmRef.current = osm;
+    esriRef.current = esriSat;
+    currentBaseRef.current = "osm";
+
+    // Click to drop/move waypoint
     const handleClick = (e: L.LeafletMouseEvent) => {
       onMapClickRef.current({ lat: e.latlng.lat, lng: e.latlng.lng });
     };
     map.on("click", handleClick);
 
-    // user marker: no popup, clicking it drops a waypoint
+    // Notes (always on)
+    const notesLayer = L.layerGroup().addTo(map);
+    notesLayerRef.current = notesLayer;
+
+    // User marker
     userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], {
       icon: userIcon,
+      keyboard: false,
     })
       .addTo(map)
       .on("click", () => {
         onMapClickRef.current({ lat: userLocation.lat, lng: userLocation.lng });
       });
 
-    // notes layer
-    notesLayerRef.current = L.layerGroup().addTo(map);
+    // Pill switch control
+    const SwitchControl = L.Control.extend({
+      options: { position: "topright" as L.ControlPosition },
+      onAdd: () => {
+        const div = L.DomUtil.create("div", "leaflet-bar");
+        div.style.background = "white";
+        div.style.borderRadius = "8px";
+        div.style.boxShadow = "0 2px 8px rgba(0,0,0,.15)";
+        div.style.overflow = "hidden";
+        div.style.display = "flex";
+        div.style.fontFamily = "system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
 
-    mapRef.current = map;
+        const btn = L.DomUtil.create("button", "", div);
+        btn.type = "button";
+        btn.style.display = "flex";
+        btn.style.alignItems = "center";
+        btn.style.padding = "6px 10px";
+        btn.style.border = "none";
+        btn.style.background = "transparent";
+        btn.style.cursor = "pointer";
+        btn.style.fontSize = "13px";
+
+        const pill = L.DomUtil.create("div", "", btn);
+        pill.style.display = "grid";
+        pill.style.gridTemplateColumns = "1fr 1fr";
+        pill.style.border = "1px solid #e5e7eb";
+        pill.style.borderRadius = "9999px";
+        pill.style.overflow = "hidden";
+
+        const left = L.DomUtil.create("div", "", pill);
+        left.textContent = "Street";
+        left.style.padding = "4px 10px";
+
+        const right = L.DomUtil.create("div", "", pill);
+        right.textContent = "Satellite";
+        right.style.padding = "4px 10px";
+
+        const setActive = (base: "osm" | "sat") => {
+          left.style.background = base === "osm" ? "#e5f3ea" : "transparent";
+          left.style.fontWeight = base === "osm" ? "700" : "500";
+          right.style.background = base === "sat" ? "#e5f3ea" : "transparent";
+          right.style.fontWeight = base === "sat" ? "700" : "500";
+        };
+        setActive("osm");
+
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.disableScrollPropagation(div);
+
+        const toggle = () => {
+          if (!mapRef.current || !osmRef.current || !esriRef.current) return;
+          const map = mapRef.current;
+          const center = map.getCenter();
+          const zoom = Math.min(map.getZoom(), 19); // never exceed native
+
+          if (currentBaseRef.current === "osm") {
+            if (map.hasLayer(osmRef.current)) map.removeLayer(osmRef.current);
+            esriRef.current.addTo(map);
+            currentBaseRef.current = "sat";
+            setActive("sat");
+          } else {
+            if (map.hasLayer(esriRef.current)) map.removeLayer(esriRef.current);
+            osmRef.current.addTo(map);
+            currentBaseRef.current = "osm";
+            setActive("osm");
+          }
+          map.setView(center, zoom, { animate: false }); // preserve view, no drift
+        };
+
+        btn.onclick = toggle;
+        return div;
+      },
+    });
+
+    map.addControl(new SwitchControl());
 
     return () => {
       map.off("click", handleClick);
@@ -109,27 +217,30 @@ export default function MapView({
       userMarkerRef.current = null;
       dragMarkerRef.current = null;
       notesLayerRef.current = null;
+      osmRef.current = null;
+      esriRef.current = null;
+      currentBaseRef.current = "osm";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // update user location position
+  // keep user marker + view synced
   React.useEffect(() => {
     if (!mapRef.current || !userMarkerRef.current) return;
     userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
-    mapRef.current.setView(
-      [userLocation.lat, userLocation.lng],
-      mapRef.current.getZoom()
-    );
+    mapRef.current.setView([userLocation.lat, userLocation.lng], mapRef.current.getZoom());
   }, [userLocation]);
 
-  // update existing notes markers (now includes Asset Type line if present)
+  // render notes (always on)
   React.useEffect(() => {
     if (!notesLayerRef.current) return;
     notesLayerRef.current.clearLayers();
 
     existingNotes.forEach((note) => {
-      const m = L.marker([note.latitude, note.longitude], { icon: existingNoteIcon });
+      const m = L.marker([note.latitude, note.longitude], {
+        icon: existingNoteIcon,
+        keyboard: false,
+      });
       const html = `
         <div class="custom-popup">
           <div class="popup-project-name" style="font-weight:700;font-size:16px;margin-bottom:8px;color:#fff;border-bottom:2px solid rgba(255,255,255,.2);padding-bottom:6px;">
@@ -154,19 +265,17 @@ export default function MapView({
     });
   }, [existingNotes]);
 
-  // draggable “new note” marker — close any open popup when clearing/replacing
+  // draggable “new note” marker
   React.useEffect(() => {
     if (!mapRef.current) return;
 
-    // if a prior drag marker exists, close any open popup and remove it
     if (dragMarkerRef.current) {
-      mapRef.current.closePopup(); // ensures lingering popup disappears
+      mapRef.current.closePopup();
       dragMarkerRef.current.off();
       mapRef.current.removeLayer(dragMarkerRef.current);
       dragMarkerRef.current = null;
     }
 
-    // if markerPosition cleared (Cancel/Confirm), also close popups and bail
     if (!markerPosition) {
       mapRef.current.closePopup();
       return;
@@ -175,6 +284,9 @@ export default function MapView({
     const dragMarker = L.marker([markerPosition.lat, markerPosition.lng], {
       icon: markerIcon,
       draggable: true,
+      autoPan: true,
+      autoPanPadding: [30, 30],
+      keyboard: false,
     })
       .addTo(mapRef.current)
       .bindPopup(

@@ -16,13 +16,22 @@ import {
 } from "@/components/ui/select";
 
 type Props = {
-  onSave: (payload: { notes: string; photos: string[]; assetType: string | null }) => void;
+  onSave: (payload: {
+    notes: string;
+    photos: string[];
+    assetType: string | null;
+  }) => void;
   onCancel: () => void;
   isLoading: boolean;
   position: { lat: number; lng: number };
 };
 
-export default function NoteForm({ onSave, onCancel, isLoading, position }: Props) {
+export default function NoteForm({
+  onSave,
+  onCancel,
+  isLoading,
+  position,
+}: Props) {
   const supabase = React.useMemo(() => createClient(), []);
   const [notes, setNotes] = React.useState("");
   const [photos, setPhotos] = React.useState<string[]>([]);
@@ -68,7 +77,9 @@ export default function NoteForm({ onSave, onCancel, isLoading, position }: Prop
         }
 
         // Public bucket: get a public URL for immediate rendering
-        const { data: pub } = supabase.storage.from("fieldnote-photos").getPublicUrl(key);
+        const { data: pub } = supabase.storage
+          .from("fieldnote-photos")
+          .getPublicUrl(key);
         if (pub?.publicUrl) uploadedUrls.push(pub.publicUrl);
       }
 
@@ -90,7 +101,9 @@ export default function NoteForm({ onSave, onCancel, isLoading, position }: Prop
       <CardHeader className="bg-gradient-to-r from-emerald-900 to-emerald-700 text-white pb-4">
         <div className="flex justify-between items-start">
           <div>
-            <CardTitle className="text-xl font-bold">Record Field Note</CardTitle>
+            <CardTitle className="text-xl font-bold">
+              Record Field Note
+            </CardTitle>
             <p className="text-sm text-white/80 mt-1">
               {position.lat.toFixed(6)}, {position.lng.toFixed(6)}
             </p>
@@ -121,6 +134,13 @@ export default function NoteForm({ onSave, onCancel, isLoading, position }: Prop
                 <SelectItem value="Pedestal">Pedestal</SelectItem>
                 <SelectItem value="Flower Pot">Flower Pot</SelectItem>
                 <SelectItem value="MST">MST</SelectItem>
+                {/* new asset types */}
+                <SelectItem value="Splice Enclosure">
+                  Splice Enclosure
+                </SelectItem>
+                <SelectItem value="Cabinet">Cabinet</SelectItem>
+                <SelectItem value="Conduit">Conduit</SelectItem>
+                <SelectItem value="Cable">Cable</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -150,7 +170,11 @@ export default function NoteForm({ onSave, onCancel, isLoading, position }: Prop
                 variant="outline"
                 className="h-12"
                 onClick={() =>
-                  (document.getElementById("camera-upload") as HTMLInputElement)?.click()
+                  (
+                    document.getElementById(
+                      "camera-upload"
+                    ) as HTMLInputElement
+                  )?.click()
                 }
                 disabled={uploading}
               >
@@ -176,7 +200,11 @@ export default function NoteForm({ onSave, onCancel, isLoading, position }: Prop
                 variant="outline"
                 className="h-12"
                 onClick={() =>
-                  (document.getElementById("gallery-upload") as HTMLInputElement)?.click()
+                  (
+                    document.getElementById(
+                      "gallery-upload"
+                    ) as HTMLInputElement
+                  )?.click()
                 }
                 disabled={uploading}
               >
@@ -205,10 +233,16 @@ export default function NoteForm({ onSave, onCancel, isLoading, position }: Prop
                     className="relative aspect-square rounded-lg overflow-hidden border-2 border-gray-200"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+                    <img
+                      src={url}
+                      alt={`Photo ${i + 1}`}
+                      className="w-full h-full object-cover"
+                    />
                     <button
                       type="button"
-                      onClick={() => setPhotos(photos.filter((_, idx) => idx !== i))}
+                      onClick={() =>
+                        setPhotos(photos.filter((_, idx) => idx !== i))
+                      }
                       className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
                     >
                       <X className="w-3 h-3" />

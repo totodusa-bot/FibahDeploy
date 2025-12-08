@@ -26,13 +26,6 @@ const nextConfig = {
       { protocol: "https", hostname: "ugc.same-assets.com", pathname: "/**" },
     ],
   },
-
-  experimental: {
-    serverActions: {
-      // Bump Server Action body limit to allow larger overlay uploads
-      bodySizeLimit: '10mb', // change to '5mb' if you prefer
-    },
-  },
 };
 
 module.exports = nextConfig;

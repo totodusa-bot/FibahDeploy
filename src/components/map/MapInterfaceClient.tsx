@@ -44,11 +44,57 @@ export default function MapInterfaceClient() {
   const [showExistingNotes, setShowExistingNotes] = React.useState(false);
   const [locationError, setLocationError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [clickPath, setClickPath] = React.useState<LatLng[]>([]);
+  const [draftAssetType, setDraftAssetType] = React.useState<string | null>(null);
+  const [overlays, setOverlays] = React.useState<any[]>([]);
+  const [overlayEnabled, setOverlayEnabled] = React.useState(false);
+  const [selectedOverlayId, setSelectedOverlayId] = React.useState<string | "">("");
 
   // Track if we've already applied the URL preselect once
   const urlPreselectApplied = React.useRef(false);
 
-  // Load projects (tolerant to casing; no fragile user filters)
+  
+  // Load overlays for the selected project
+  React.useEffect(() => {
+    if (!selectedProject) {
+      setOverlays([]);
+      setSelectedOverlayId("");
+      setOverlayEnabled(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      const { data, error } = await supabase
+        .from("project_overlays")
+        .select("id, name, storage_path")
+        .eq("project_id", selectedProject.id)
+        .order("created_at", { ascending: false });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.warn("[overlays] query error:", error);
+        setOverlays([]);
+        return;
+      }
+
+      setOverlays(data || []);
+
+      if ((data || []).length > 0) {
+        setSelectedOverlayId((prev) => prev || data![0].id);
+      } else {
+        setSelectedOverlayId("");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProject, supabase]);
+
+// Load projects (tolerant to casing; no fragile user filters)
   React.useEffect(() => {
     let alive = true;
     async function load() {
@@ -105,7 +151,7 @@ export default function MapInterfaceClient() {
         const { data, error } = await supabase
           .from(t as any)
           .select(
-            "id, project_id, project_name, created_by_name, latitude, longitude, notes, photos, asset_type, is_deleted, created_at"
+            "id, project_id, project_name, created_by_name, latitude, longitude, geometry, notes, photos, asset_type, is_deleted, created_at"
           )
           .order("created_at", { ascending: false });
 
@@ -146,17 +192,25 @@ export default function MapInterfaceClient() {
     return (notes || []).filter((n: any) => n.project_id === selectedProject.id && !n.is_deleted);
   }, [selectedProject, showExistingNotes, notes]);
 
+
   // Map handlers
   const handleMapClick = (p: LatLng) => {
     if (!selectedProject) {
       alert("Please select a project first");
       return;
     }
-    setMarkerPosition(p);
-    setShowNoteForm(false);
-    setConfirmedPosition(null);
+
+    if (!showNoteForm) {
+      // Selecting or adjusting the starting point before confirming
+      setMarkerPosition(p);
+      setConfirmedPosition(null);
+    } else {
+      // While the note form is open, treat additional clicks as extra vertices
+      setClickPath((prev) => [...prev, p]);
+    }
   };
   const handleMarkerDragEnd = (p: LatLng) => setMarkerPosition(p);
+
 
   const centerOnUser = () => {
     if (!navigator.geolocation) return;
@@ -177,7 +231,7 @@ export default function MapInterfaceClient() {
     if (!selectedProject || !confirmedPosition || isSaving) return;
     setIsSaving(true);
 
-    // duplicate protection at same coords
+    // duplicate protection at same coords (based on starting point)
     const dup = notes.find(
       (n: any) =>
         !n.is_deleted &&
@@ -191,12 +245,22 @@ export default function MapInterfaceClient() {
         setIsSaving(false);
         return;
       }
-      await supabase.from("field_notes").update({ is_deleted: true }).eq("id", dup.id).throwOnError();
+      await supabase.rpc("soft_delete_field_note", { p_note_id: dup.id }).throwOnError();
     }
 
     const { data: userRes } = await supabase.auth.getUser();
     const user = userRes?.user;
     const displayName = user?.user_metadata?.full_name || user?.email || "Unknown";
+
+    const isLineAsset = payload.assetType === "Conduit" || payload.assetType === "Cable";
+
+    // Build the vertex list:
+    // - For line assets, clickPath includes the starting point (confirmedPosition) plus any extra vertices.
+    // - For point assets, just use confirmedPosition.
+    const vertices: LatLng[] =
+      isLineAsset && clickPath.length >= 1 ? clickPath : [confirmedPosition];
+
+    const start = vertices[0];
 
     // Build row; omit asset_type if not set so DB default 'Unknown' applies
     const row: any = {
@@ -204,12 +268,27 @@ export default function MapInterfaceClient() {
       project_name: selectedProject.name,
       created_by: user?.id,
       created_by_name: displayName,
-      latitude: confirmedPosition.lat,
-      longitude: confirmedPosition.lng,
+      latitude: start.lat,
+      longitude: start.lng,
       notes: payload.notes ?? null,
       photos: payload.photos ?? [],
       is_deleted: false,
     };
+
+    // Geometry: store full LineString for Conduit/Cable when we have 2+ vertices,
+    // otherwise store a Point for compatibility and future use.
+    if (isLineAsset && vertices.length >= 2) {
+      row.geometry = {
+        type: "LineString",
+        coordinates: vertices.map((v) => [v.lng, v.lat]),
+      };
+    } else {
+      row.geometry = {
+        type: "Point",
+        coordinates: [start.lng, start.lat],
+      };
+    }
+
     if (payload.assetType) row.asset_type = payload.assetType;
 
     const { data, error } = await supabase.from("field_notes").insert(row).select().single();
@@ -219,6 +298,8 @@ export default function MapInterfaceClient() {
       setShowNoteForm(false);
       setMarkerPosition(null);
       setConfirmedPosition(null);
+      setClickPath([]);
+      setDraftAssetType(null);
     } else {
       console.warn("[field_notes] insert error:", error);
       alert("Could not save note. Check console for details.");
@@ -286,7 +367,7 @@ export default function MapInterfaceClient() {
       )}
 
       {/* Map */}
-      <div className="relative flex-1 rounded-lg overflow-hidden border border-slate-200">
+      <div className="relative flex-1 rounded-lg border border-slate-200 overflow-visible md:overflow-hidden">
         {userLocation && (
           <MapView
             userLocation={userLocation}
@@ -295,6 +376,20 @@ export default function MapInterfaceClient() {
             onMarkerDragEnd={handleMarkerDragEnd}
             selectedProject={selectedProject}
             existingNotes={existingNotes}
+            draftPath={showNoteForm ? clickPath : []}
+            draftAssetType={draftAssetType}
+            onDraftVertexMove={(idx, p) => {
+              setClickPath((prev) =>
+                prev.map((pt, i) => (i === idx ? { lat: p.lat, lng: p.lng } : pt))
+              );
+            }}
+            locationConfirmed={!!confirmedPosition}
+            overlayEnabled={overlayEnabled}
+            overlayStoragePath={
+              overlayEnabled && selectedOverlayId && overlays.length
+                ? overlays.find((o) => o.id === selectedOverlayId)?.storage_path ?? null
+                : null
+            }
           />
         )}
 
@@ -313,6 +408,8 @@ export default function MapInterfaceClient() {
                       onClick={() => {
                         setMarkerPosition(null);
                         setConfirmedPosition(null);
+                        setClickPath([]);
+                        setDraftAssetType(null);
                       }}
                       className="flex-1 md:flex-initial h-12 px-4"
                       disabled={isSaving}
@@ -321,7 +418,10 @@ export default function MapInterfaceClient() {
                     </Button>
                     <Button
                       onClick={() => {
+                        if (!markerPosition) return;
                         setConfirmedPosition(markerPosition);
+                        setClickPath([markerPosition]);
+                        setDraftAssetType(null);
                         setShowNoteForm(true);
                       }}
                       className="flex-1 md:flex-initial h-12 px-6"
@@ -336,19 +436,83 @@ export default function MapInterfaceClient() {
         )}
 
         {showNoteForm && confirmedPosition && (
-          <div className="absolute bottom-4 left-4 right-4 md:left-auto md:w-96 z-[1000]">
+          <div
+            className="
+              mt-4
+              md:mt-0
+              md:absolute
+              md:bottom-4
+              md:right-4
+              md:left-auto
+              md:w-96
+              z-[1000]
+            "
+          >
             <NoteForm
               onSave={handleSaveNote}
               onCancel={() => {
                 setShowNoteForm(false);
                 setMarkerPosition(null);
                 setConfirmedPosition(null);
+                setClickPath([]);
+                setDraftAssetType(null);
+                setDraftAssetType(null);
               }}
               isLoading={isSaving}
               position={confirmedPosition}
+              lineVertexCount={clickPath.length}
+              onAssetTypeChange={setDraftAssetType}
             />
           </div>
         )}
+
+      {/* Overlay Plans - sits under the map on all screens */}
+      {selectedProject && (
+        <div className="mt-4 w-full">
+          <Card className="bg-white shadow-sm border border-slate-200">
+            <CardContent className="p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-800">Overlay Plans</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] text-slate-500">Off</span>
+                  <Switch
+                    checked={overlayEnabled}
+                    onCheckedChange={(v) => setOverlayEnabled(Boolean(v))}
+                    disabled={!overlays.length}
+                  />
+                  <span className="text-[11px] text-slate-500">On</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Overlay file</Label>
+                <select
+                  className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  disabled={!overlays.length}
+                  value={selectedOverlayId}
+                  onChange={(e) => setSelectedOverlayId(e.target.value)}
+                >
+                  {overlays.length === 0 && <option value="">No overlays</option>}
+                  {overlays.length > 0 && !selectedOverlayId && (
+                    <option value="">Select overlay…</option>
+                  )}
+                  {overlays.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {overlays.length === 0 && (
+                <p className="text-[11px] text-slate-500">
+                  Upload GeoJSON overlays to this project to enable map plans.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
       </div>
     </div>
   );

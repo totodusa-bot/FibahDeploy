@@ -13,17 +13,17 @@ export default async function NotesPage() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex flex-col md:flex-row min-h-screen bg-slate-50">
       <Sidebar />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="p-8">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">
+        <div className="p-4 sm:p-6 lg:p-8">
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 mb-2">
             Coming Soon
           </h1>
           <p className="text-slate-600 mb-8">Coming Soon</p>
 
-          <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
+          <div className="bg-white rounded-lg border border-slate-200 p-6 sm:p-8 md:p-12 text-center">
             <div className="text-slate-400 mb-4">
               <svg
                 className="w-16 h-16 mx-auto"

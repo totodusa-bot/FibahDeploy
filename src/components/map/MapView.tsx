@@ -2,6 +2,7 @@
 
 import React from "react";
 import L, { Map as LeafletMap, Marker as LeafletMarker, Icon } from "leaflet";
+import { createClient } from "@/lib/supabase/client";
 
 type LatLng = { lat: number; lng: number };
 
@@ -19,7 +20,17 @@ interface MapViewProps {
     notes: string;
     created_by_name: string;
     asset_type?: string | null;
+    geometry?: {
+      type: string;
+      coordinates?: any;
+    } | null;
   }>;
+  draftPath?: LatLng[];
+  draftAssetType?: string | null;
+  onDraftVertexMove?: (index: number, p: LatLng) => void;
+  locationConfirmed?: boolean;
+  overlayEnabled?: boolean;
+  overlayStoragePath?: string | null;
 }
 
 const userIcon = new Icon({
@@ -45,6 +56,20 @@ const existingNoteIcon = new Icon({
   popupAnchor: [0, -36],
 });
 
+const lineIcon = new Icon({
+  iconUrl: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%3E%0A%20%20%3Cpath%20d%3D%22M12%202L4%2010L12%2022L20%2010Z%22%20fill%3D%22%23ea580c%22/%3E%0A%20%20%3Ccircle%20cx%3D%2212%22%20cy%3D%2211%22%20r%3D%223%22%20fill%3D%22white%22/%3E%0A%3C/svg%3E",
+  iconSize: [40, 40],
+  iconAnchor: [20, 40],
+  popupAnchor: [0, -40],
+});
+
+const vertexIcon = new Icon({
+  iconUrl:
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Ccircle cx='9' cy='9' r='4' fill='%23ffffff' stroke='%23000000' stroke-width='1.5'/%3E%3C/svg%3E",
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
 export default function MapView({
   userLocation,
   markerPosition,
@@ -52,12 +77,22 @@ export default function MapView({
   selectedProject,
   onMarkerDragEnd,
   existingNotes = [],
+  draftPath = [],
+  draftAssetType,
+  onDraftVertexMove,
+  locationConfirmed,
+  overlayEnabled = false,
+  overlayStoragePath = null,
 }: MapViewProps) {
+  const supabase = React.useMemo(() => createClient(), []);
+
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const mapRef = React.useRef<LeafletMap | null>(null);
   const userMarkerRef = React.useRef<LeafletMarker | null>(null);
   const dragMarkerRef = React.useRef<LeafletMarker | null>(null);
   const notesLayerRef = React.useRef<L.LayerGroup | null>(null);
+  const draftLayerRef = React.useRef<L.LayerGroup | null>(null);
+  const overlayLayerRef = React.useRef<L.GeoJSON | null>(null);
 
   // Base layers
   const osmRef = React.useRef<L.TileLayer | null>(null);
@@ -69,6 +104,12 @@ export default function MapView({
   React.useEffect(() => {
     onMapClickRef.current = onMapClick;
   }, [onMapClick]);
+
+  // stable drag-end callback ref so we don't recreate marker on every render
+  const onMarkerDragEndRef = React.useRef(onMarkerDragEnd);
+  React.useEffect(() => {
+    onMarkerDragEndRef.current = onMarkerDragEnd;
+  }, [onMarkerDragEnd]);
 
   // init once
   React.useEffect(() => {
@@ -124,6 +165,8 @@ export default function MapView({
     // Notes (always on)
     const notesLayer = L.layerGroup().addTo(map);
     notesLayerRef.current = notesLayer;
+    const draftLayer = L.layerGroup().addTo(map);
+    draftLayerRef.current = draftLayer;
 
     // User marker
     userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], {
@@ -216,7 +259,12 @@ export default function MapView({
       mapRef.current = null;
       userMarkerRef.current = null;
       dragMarkerRef.current = null;
+      dragMarkerRef.current = null;
+      draftLayerRef.current = null;
       notesLayerRef.current = null;
+      if (overlayLayerRef.current) {
+        overlayLayerRef.current = null;
+      }
       osmRef.current = null;
       esriRef.current = null;
       currentBaseRef.current = "osm";
@@ -231,19 +279,118 @@ export default function MapView({
     mapRef.current.setView([userLocation.lat, userLocation.lng], mapRef.current.getZoom());
   }, [userLocation]);
 
+
+  // overlay GeoJSON renderer
+  React.useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (!overlayEnabled || !overlayStoragePath) {
+      if (overlayLayerRef.current) {
+        mapRef.current.removeLayer(overlayLayerRef.current);
+        overlayLayerRef.current = null;
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { data, error } = await supabase.storage
+          .from("project-overlays")
+          .download(overlayStoragePath);
+
+        if (error || !data) {
+          console.warn("Failed to download overlay", error);
+          return;
+        }
+
+        const text = await data.text();
+        const geojson = JSON.parse(text);
+
+        if (!mapRef.current || cancelled) return;
+
+        if (overlayLayerRef.current) {
+          mapRef.current.removeLayer(overlayLayerRef.current);
+        }
+
+        const layer = L.geoJSON(geojson as any, {
+          style: {
+            color: "#2563eb",
+            weight: 2,
+            opacity: 0.9,
+          },
+        }).addTo(mapRef.current);
+
+        overlayLayerRef.current = layer;
+      } catch (err) {
+        console.error("Error rendering overlay", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [overlayEnabled, overlayStoragePath, supabase]);
+
   // render notes (always on)
   React.useEffect(() => {
     if (!notesLayerRef.current) return;
     notesLayerRef.current.clearLayers();
 
     existingNotes.forEach((note) => {
+      const isLineAsset = note.asset_type === "Conduit" || note.asset_type === "Cable";
+      const geom = note.geometry;
+
+      // Draw line geometry first, if available
+      if (isLineAsset && geom && geom.type === "LineString" && Array.isArray(geom.coordinates)) {
+        const coords = (geom.coordinates as [number, number][]).map(
+          (c) => [c[1], c[0]] as [number, number] // [lat, lng]
+        );
+        if (coords.length >= 2) {
+          // Style line differently for Conduit vs Cable
+          const isConduit = note.asset_type === "Conduit";
+          const polyline = L.polyline(coords, {
+            weight: isConduit ? 3 : 4,
+            dashArray: isConduit ? "6 6" : undefined,
+          });
+          polyline.addTo(notesLayerRef.current!);
+
+          // Vertex markers along the line
+          coords.forEach((c, idx) => {
+            const v = L.circleMarker(c, {
+              radius: 4,
+            });
+            v.addTo(notesLayerRef.current!);
+          });
+
+          // Start & end markers with line icon
+          const start = coords[0];
+          const end = coords[coords.length - 1];
+
+          const startMarker = L.marker(start, {
+            icon: lineIcon,
+            keyboard: false,
+          });
+          const endMarker = L.marker(end, {
+            icon: lineIcon,
+            keyboard: false,
+          });
+
+          startMarker.addTo(notesLayerRef.current!);
+          endMarker.addTo(notesLayerRef.current!);
+        }
+      }
+
+      // Anchor marker/popup on the stored latitude/longitude (single point)
+      const markerIconForNote = isLineAsset ? lineIcon : existingNoteIcon;
       const m = L.marker([note.latitude, note.longitude], {
-        icon: existingNoteIcon,
+        icon: markerIconForNote,
         keyboard: false,
       });
       const html = `
         <div class="custom-popup">
-          <div class="popup-project-name" style="font-weight:700;font-size:16px;margin-bottom:8px;color:#fff;border-bottom:2px solid rgba(255,255,255,.2);padding-bottom:6px;">
+          <div class="popup-project-name" style="font-weight:600;font-size:14px;margin-bottom:4px;border-bottom:2px solid rgba(255,255,255,.2);padding-bottom:6px;">
             ${note.project_name}
           </div>
           ${note.asset_type ? `
@@ -264,13 +411,60 @@ export default function MapView({
       m.addTo(notesLayerRef.current!);
     });
   }, [existingNotes]);
+  // render draft line for line assets while placing
+  React.useEffect(() => {
+    if (!draftLayerRef.current) return;
+    draftLayerRef.current.clearLayers();
 
+    if (!draftPath || draftPath.length === 0) return;
+
+    const isLineDraft = draftAssetType === "Conduit" || draftAssetType === "Cable";
+    if (!isLineDraft) return;
+
+    const coords = draftPath.map((p) => [p.lat, p.lng] as [number, number]);
+
+    if (coords.length >= 2) {
+      const isConduit = draftAssetType === "Conduit";
+      const poly = L.polyline(coords, {
+        weight: isConduit ? 3 : 4,
+        dashArray: isConduit ? "6 6" : undefined,
+      });
+      poly.addTo(draftLayerRef.current!);
+    }
+
+    coords.forEach((c, idx) => {
+      // First vertex (starting point) should not be draggable once confirmed;
+      // here we just show it as a small vertex marker.
+      if (idx === 0) {
+        const v = L.circleMarker(c, {
+          radius: 4,
+        });
+        v.addTo(draftLayerRef.current!);
+        return;
+      }
+
+      // Subsequent vertices are draggable so the user can refine the path
+      const v = L.marker(c, {
+        icon: vertexIcon,
+        draggable: true,
+        keyboard: false,
+      });
+
+      v.on("dragend", () => {
+        const p = v.getLatLng();
+        if (typeof (onDraftVertexMove as any) === "function") {
+          (onDraftVertexMove as any)(idx, { lat: p.lat, lng: p.lng });
+        }
+      });
+
+      v.addTo(draftLayerRef.current!);
+    });
+  }, [draftPath, draftAssetType, onDraftVertexMove]);
   // draggable “new note” marker
   React.useEffect(() => {
     if (!mapRef.current) return;
 
     if (dragMarkerRef.current) {
-      mapRef.current.closePopup();
       dragMarkerRef.current.off();
       mapRef.current.removeLayer(dragMarkerRef.current);
       dragMarkerRef.current = null;
@@ -281,31 +475,53 @@ export default function MapView({
       return;
     }
 
+    const isLineDraft = draftAssetType === "Conduit" || draftAssetType === "Cable";
+    const activeIcon = isLineDraft ? lineIcon : markerIcon;
+    const canDragStart = !locationConfirmed;
+
     const dragMarker = L.marker([markerPosition.lat, markerPosition.lng], {
-      icon: markerIcon,
-      draggable: true,
+      icon: activeIcon,
+      draggable: canDragStart,
       autoPan: true,
       autoPanPadding: [30, 30],
       keyboard: false,
-    })
-      .addTo(mapRef.current)
-      .bindPopup(
-        `<div class="text-center">
-           <p class="font-semibold" style="color:#ea580c">New Marker</p>
-           <p class="text-xs" style="color:#475569">${markerPosition.lat.toFixed(6)}, ${markerPosition.lng.toFixed(6)}</p>
-           ${selectedProject ? `<p class="text-xs" style="color:#64748b;margin-top:4px">${selectedProject.name}</p>` : ""}
-           <p class="text-xs" style="color:#ea580c;margin-top:4px;font-weight:600">Drag to adjust</p>
-         </div>`
-      )
-      .openPopup();
+    }).addTo(mapRef.current);
 
-    dragMarker.on("dragend", () => {
-      const p = dragMarker.getLatLng();
-      onMarkerDragEnd({ lat: p.lat, lng: p.lng });
-    });
+    // Only show the helper popup while we're still choosing the starting point.
+    if (!locationConfirmed) {
+      dragMarker
+        .bindPopup(
+          `<div class="text-center">
+             <p class="font-semibold" style="color:#ea580c">New Marker</p>
+             <p class="text-xs" style="color:#475569">${markerPosition.lat.toFixed(6)}, ${markerPosition.lng.toFixed(6)}</p>
+             ${
+               selectedProject
+                 ? `<p class="text-xs" style="color:#64748b;margin-top:4px">${selectedProject.name}</p>`
+                 : ""
+             }
+             <p class="text-xs" style="color:#ea580c;margin-top:4px;font-weight:600">Drag to adjust</p>
+           </div>`
+        )
+        .openPopup();
+
+      setTimeout(() => {
+        if (dragMarkerRef.current === dragMarker) {
+          dragMarker.closePopup();
+        }
+      }, 3000);
+    }
+
+    if (canDragStart) {
+      dragMarker.on("dragend", () => {
+        const p = dragMarker.getLatLng();
+        if (onMarkerDragEndRef.current) {
+          onMarkerDragEndRef.current({ lat: p.lat, lng: p.lng });
+        }
+      });
+    }
 
     dragMarkerRef.current = dragMarker;
-  }, [markerPosition, selectedProject, onMarkerDragEnd]);
+  }, [markerPosition, selectedProject, draftAssetType, locationConfirmed]);
 
   return (
     <>

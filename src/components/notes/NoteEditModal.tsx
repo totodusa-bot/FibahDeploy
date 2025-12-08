@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import dynamic from "next/dynamic";
-import { Loader2, Save, X, Camera, Upload } from "lucide-react";
+import { Loader2, Save, X, Camera, Upload, Trash2 } from "lucide-react";
 
 const LocationMiniMap = dynamic(
   () => import("@/components/notes/LocationMiniMap"),
@@ -35,6 +35,7 @@ type FieldNote = {
   created_by_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  geometry?: { type: string; coordinates?: any } | null;
 };
 
 export default function NoteEditModal({
@@ -120,7 +121,8 @@ export default function NoteEditModal({
     setSaving(true);
     setError(null);
 
-    const payload = {
+    // Base payload
+    const payload: any = {
       project_id: form.project_id ?? null,
       project_name: form.project_name ?? null,
       notes: form.notes ?? null,
@@ -130,10 +132,55 @@ export default function NoteEditModal({
       longitude: form.longitude,
     };
 
+    // If this is a line asset (Conduit/Cable) and we have a LineString geometry,
+    // keep the existing path but move the starting vertex to the new lat/lng so
+    // the map start icon and stored coordinates stay in sync.
+    const isLineAsset =
+      form.asset_type === "Conduit" || form.asset_type === "Cable";
+
+    if (
+      isLineAsset &&
+      form.geometry &&
+      form.geometry.type === "LineString" &&
+      Array.isArray((form.geometry as any).coordinates)
+    ) {
+      const coords = [...(form.geometry as any).coordinates];
+      if (coords.length >= 1) {
+        coords[0] = [form.longitude, form.latitude];
+        payload.geometry = {
+          type: "LineString",
+          coordinates: coords,
+        };
+      }
+    }
+
     const { error: err } = await supabase
       .from("field_notes")
       .update(payload)
       .eq("id", form.id);
+    if (err) {
+      setError(err.message);
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+    onSaved();
+  };
+  const onDelete = async () => {
+    if (!form) return;
+    const ok = window.confirm(
+      "Are you sure you want to delete this field note? This will archive it and it will no longer appear on the map."
+    );
+    if (!ok) return;
+
+    setSaving(true);
+    setError(null);
+
+    const { error: err } = await supabase.rpc("soft_delete_field_note", {
+      p_note_id: form.id,
+    });
+
     if (err) {
       setError(err.message);
       setSaving(false);
@@ -338,18 +385,29 @@ export default function NoteEditModal({
           </div>
 
           {/* Sticky footer always visible */}
-          <div className="mt-auto sticky bottom-0 border-t bg-background px-6 py-4 flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>
+          <div className="mt-auto sticky bottom-0 border-t bg-background px-6 py-4 flex justify-between items-center gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving || uploading}>
               Cancel
             </Button>
-            <Button onClick={onSave} disabled={saving || uploading}>
-              {saving ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4 mr-2" />
-              )}
-              Save Changes
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={onDelete}
+                disabled={saving || uploading || !form}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+              <Button onClick={onSave} disabled={saving || uploading}>
+                {saving ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Save Changes
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

@@ -12,16 +12,16 @@ if (!user) redirect('/')
 
 
 return (
-<div className="flex min-h-screen bg-slate-50">
+<div className="flex flex-col md:flex-row min-h-screen bg-slate-50">
 <Sidebar />
-<main className="flex-1 p-6">
+<main className="flex-1 w-full p-4 sm:p-6">
 <div className="mx-auto max-w-[1400px]">
 <div className="mb-4">
 <h1 className="text-2xl font-bold text-slate-900">Map Interface</h1>
 <p className="text-slate-600">Place markers and create field notes</p>
 </div>
 {/* Client-side map + forms */}
-<div className="h-[calc(100vh-140px)]">
+<div className="h-[60vh] sm:h-[calc(100vh-180px)]">
 <MapInterfaceClient />
 </div>
 </div>

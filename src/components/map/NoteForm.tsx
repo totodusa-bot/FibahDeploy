@@ -24,6 +24,8 @@ type Props = {
   onCancel: () => void;
   isLoading: boolean;
   position: { lat: number; lng: number };
+  lineVertexCount?: number;
+  onAssetTypeChange?: (value: string) => void;
 };
 
 export default function NoteForm({
@@ -31,12 +33,16 @@ export default function NoteForm({
   onCancel,
   isLoading,
   position,
+  lineVertexCount = 1,
+  onAssetTypeChange,
 }: Props) {
   const supabase = React.useMemo(() => createClient(), []);
   const [notes, setNotes] = React.useState("");
   const [photos, setPhotos] = React.useState<string[]>([]);
   const [uploading, setUploading] = React.useState(false);
   const [assetType, setAssetType] = React.useState<string>(""); // empty means not chosen yet
+  const isLineAsset = assetType === "Conduit" || assetType === "Cable";
+  const needsMoreVertices = isLineAsset && lineVertexCount < 2;
 
   async function handleUpload(files: FileList | null) {
     if (!files || files.length === 0 || uploading) return;
@@ -97,7 +103,7 @@ export default function NoteForm({
   }
 
   return (
-    <Card className="border-2 border-emerald-800 shadow-2xl">
+    <Card className="border-2 border-emerald-800 shadow-2xl w-full max-h-[80vh] overflow-y-auto">
       <CardHeader className="bg-gradient-to-r from-emerald-900 to-emerald-700 text-white pb-4">
         <div className="flex justify-between items-start">
           <div>
@@ -124,7 +130,7 @@ export default function NoteForm({
           {/* Asset Type */}
           <div className="space-y-2">
             <Label className="text-sm font-semibold">Asset Type</Label>
-            <Select value={assetType} onValueChange={setAssetType}>
+            <Select value={assetType} onValueChange={(value) => { setAssetType(value); onAssetTypeChange?.(value); }}>
               <SelectTrigger className="h-12 bg-white border-2 border-gray-200 hover:border-emerald-700 transition-colors w-full">
                 <SelectValue placeholder="Select an asset type" />
               </SelectTrigger>
@@ -146,6 +152,12 @@ export default function NoteForm({
           </div>
 
           {/* Notes */}
+          {isLineAsset && needsMoreVertices && (
+            <p className="text-xs text-orange-700">
+              Tap another point on the map to add at least one more vertex before saving this line.
+            </p>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="notes" className="text-sm font-semibold">
               Field Notes
@@ -266,9 +278,13 @@ export default function NoteForm({
             <Button
               type="submit"
               className="flex-1 h-12"
-              disabled={isLoading || uploading}
+              disabled={isLoading || uploading || needsMoreVertices}
             >
-              {isLoading ? "Saving..." : "Save Note"}
+              {isLoading
+                ? "Saving..."
+                : needsMoreVertices
+                ? "Add another point on map"
+                : "Save Note"}
             </Button>
           </div>
         </form>

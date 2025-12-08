@@ -122,6 +122,19 @@ export function NewProjectDialog() {
             />
           </div>
 
+            <div className="space-y-2">
+  <Label htmlFor="overlay_file">Overlay GeoJSON (optional)</Label>
+  <Input
+    id="overlay_file"
+    name="overlay_file"
+    type="file"
+    accept=".geojson,application/geo+json,application/json"
+  />
+  <p className="text-xs text-slate-500">
+    Upload a GeoJSON overlay to use on the map interface later.
+  </p>
+</div>
+
           <div className="flex justify-end gap-3 pt-4">
             <Button
               type="button"

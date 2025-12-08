@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { deleteProject, updateProject, type Project } from '@/app/actions/projects'
+import { deleteProject, deleteProjectOverlay, updateProject, type Project } from '@/app/actions/projects'
 import { cn } from '@/lib/utils'
 
 interface ProjectCardProps {
@@ -35,6 +35,21 @@ export function ProjectCard({ project }: ProjectCardProps) {
     if (result.error) {
       alert(result.error)
     }
+    setLoading(false)
+  }
+
+
+  const handleDeleteOverlay = async (overlayId: string) => {
+    if (!confirm('Remove this overlay from the project? This cannot be undone.')) return
+
+    setLoading(true)
+    setError(null)
+    const result = await deleteProjectOverlay(project.id, overlayId)
+
+    if (result?.error) {
+      setError(result.error)
+    }
+
     setLoading(false)
   }
 
@@ -136,7 +151,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
 
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Project</DialogTitle>
             <DialogDescription>
@@ -203,6 +218,47 @@ export function ProjectCard({ project }: ProjectCardProps) {
                 name="location"
                 defaultValue={project.location || ''}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-overlay_file">Overlay GeoJSON (optional)</Label>
+              <Input
+                id="edit-overlay_file"
+                name="overlay_file"
+                type="file"
+                accept=".geojson,application/geo+json,application/json"
+              />
+              <p className="text-xs text-slate-500">
+                Upload a new GeoJSON overlay for this project (optional).
+              </p>
+
+              {Array.isArray(project.project_overlays) && project.project_overlays.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <p className="text-xs text-slate-500">Existing overlays</p>
+                  <div className="space-y-1 max-h-40 overflow-y-auto border rounded-md p-2 bg-slate-50">
+                    {project.project_overlays.map((overlay) => (
+                      <div
+                        key={overlay.id}
+                        className="flex items-center justify-between gap-2 text-xs"
+                      >
+                        <span className="truncate" title={overlay.name}>
+                          {overlay.name}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[11px]"
+                          disabled={loading}
+                          onClick={() => handleDeleteOverlay(overlay.id)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-3 pt-4">

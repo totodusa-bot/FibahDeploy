@@ -23,9 +23,9 @@ type NotePayload = { notes: string; photos: string[]; assetType: string | null }
 
 export default function MapInterfaceClient() {
   const supabase = React.useMemo(() => createClient(), []);
-  const searchParams = useSearchParams();               // read current query
-  const router = useRouter();                           // update query without reload
-  const pathname = usePathname();                       // current route path
+  const searchParams = useSearchParams();                // read current query
+  const router = useRouter();                            // update query without reload
+  const pathname = usePathname();                        // current route path
 
   // Read the project id from URL (?project= or ?projectId=)
   const initialProjectId = React.useMemo(
@@ -138,7 +138,7 @@ export default function MapInterfaceClient() {
     const match = projects.find((p: any) => String(p.id) === String(initialProjectId));
     if (match) {
       setSelectedProject(match);
-      urlPreselectApplied.current = true;                    
+      urlPreselectApplied.current = true;                     
     }
   }, [projects, initialProjectId]); // no selectedProject in deps → don't fight the dropdown
 
@@ -317,7 +317,7 @@ export default function MapInterfaceClient() {
   }, [router, pathname, searchParams]);
 
   return (
-    <div className="h-full flex flex-col relative">
+    <div className="min-h-screen flex flex-col relative">
       {/* Top controls */}
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex-1 min-w-[220px]">
@@ -366,8 +366,8 @@ export default function MapInterfaceClient() {
         </Alert>
       )}
 
-      {/* Map */}
-      <div className="relative flex-1 rounded-lg border border-slate-200 overflow-visible md:overflow-hidden">
+      {/* Map - Fixed height (70% of viewport) ensures map renders correctly */}
+      <div className="relative w-full h-[70vh] min-h-[500px] rounded-lg border border-slate-200 overflow-visible md:overflow-hidden">
         {userLocation && (
           <MapView
             userLocation={userLocation}
@@ -465,6 +465,7 @@ export default function MapInterfaceClient() {
             />
           </div>
         )}
+      </div>
 
       {/* Overlay Plans - sits under the map on all screens */}
       {selectedProject && (
@@ -513,7 +514,6 @@ export default function MapInterfaceClient() {
           </Card>
         </div>
       )}
-      </div>
     </div>
   );
 }

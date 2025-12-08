@@ -3,15 +3,13 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-type SwitchProps = {
+export type SwitchProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   checked: boolean
   onCheckedChange: (checked: boolean) => void
-  disabled?: boolean
-  className?: string
 }
 
 export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
-  ({ checked, onCheckedChange, disabled, className }, ref) => {
+  ({ checked, onCheckedChange, disabled, className, ...rest }, ref) => {
     return (
       <button
         ref={ref}
@@ -29,6 +27,7 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
           checked ? "bg-slate-900" : "bg-slate-200",
           className
         )}
+        {...rest} // <-- this carries id, aria-*, etc.
       >
         <span
           className={cn(

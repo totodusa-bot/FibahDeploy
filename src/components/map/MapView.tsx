@@ -328,6 +328,26 @@ export default function MapView({
             weight: 2,
             opacity: 0.9,
           },
+          pointToLayer: (feature, latlng) => {
+            const marker = L.marker(latlng, {
+              icon: overlayPointIcon,
+              keyboard: false,
+            });
+
+            if (feature?.properties) {
+              const name = feature.properties.name || feature.properties.title;
+              if (name) {
+                marker.bindTooltip(String(name), {
+                  permanent: false,
+                  direction: "top",
+                  offset: [0, -8],
+                  className: "overlay-point-label",
+                });
+              }
+            }
+
+            return marker;
+          },
         }).addTo(mapRef.current);
 
         overlayLayerRef.current = layer;

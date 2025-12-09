@@ -322,9 +322,9 @@ export default function MapView({
           },
           pointToLayer: (feature, latlng) => {
             const circle = L.circleMarker(latlng, {
-              radius: 5,
+              radius: 3,
               color: "#1d4ed8",
-              weight: 2,
+              weight: 1.5,
               fillColor: "#2563eb",
               fillOpacity: 0.9,
               opacity: 0.9,

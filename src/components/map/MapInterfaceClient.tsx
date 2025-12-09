@@ -50,6 +50,9 @@ export default function MapInterfaceClient() {
   const [overlayEnabled, setOverlayEnabled] = React.useState(false);
   const [selectedOverlayId, setSelectedOverlayId] = React.useState<string | "">("");
 
+  // Track last project to trigger map resets on change
+  const prevProjectIdRef = React.useRef<string | null>(null);
+
   // Track if we've already applied the URL preselect once
   const urlPreselectApplied = React.useRef(false);
 
@@ -82,17 +85,37 @@ export default function MapInterfaceClient() {
 
       setOverlays(data || []);
 
-      if ((data || []).length > 0) {
-        setSelectedOverlayId((prev) => prev || data![0].id);
-      } else {
-        setSelectedOverlayId("");
-      }
+      setSelectedOverlayId((prev) => {
+        if (prev && (data || []).some((o) => String(o.id) === String(prev))) {
+          return prev; // keep if still valid for this project
+        }
+        return data?.[0]?.id || ""; // default to newest overlay or clear
+      });
     })();
 
     return () => {
       cancelled = true;
     };
   }, [selectedProject, supabase]);
+
+  // Soft reset map UI when switching projects via dropdown/URL
+  React.useEffect(() => {
+    const currentId = selectedProject ? String(selectedProject.id) : null;
+    const prevId = prevProjectIdRef.current;
+
+    if (prevId === currentId) return;
+
+    prevProjectIdRef.current = currentId;
+
+    // Clear map interaction state so overlays/notes reload cleanly
+    setOverlayEnabled(false);
+    setSelectedOverlayId("");
+    setShowNoteForm(false);
+    setMarkerPosition(null);
+    setConfirmedPosition(null);
+    setClickPath([]);
+    setDraftAssetType(null);
+  }, [selectedProject]);
 
 // Load projects (tolerant to casing; no fragile user filters)
   React.useEffect(() => {

@@ -73,7 +73,7 @@ export default function MapInterfaceClient() {
         .from("project_overlays")
         .select("id, name, storage_path")
         .eq("project_id", selectedProject.id)
-        .order("created_at", { ascending: false });
+        .order("name", { ascending: true });
 
       if (cancelled) return;
 
@@ -83,13 +83,17 @@ export default function MapInterfaceClient() {
         return;
       }
 
-      setOverlays(data || []);
+      const sorted = (data ?? []).slice().sort((a, b) => {
+        return String(a.name ?? "").localeCompare(String(b.name ?? ""));
+      });
+
+      setOverlays(sorted);
 
       setSelectedOverlayId((prev) => {
-        if (prev && (data || []).some((o) => String(o.id) === String(prev))) {
+        if (prev && sorted.some((o) => String(o.id) === String(prev))) {
           return prev; // keep if still valid for this project
         }
-        return data?.[0]?.id || ""; // default to newest overlay or clear
+        return sorted?.[0]?.id || ""; // default to first alphabetical overlay or clear
       });
     })();
 

@@ -146,11 +146,13 @@ export default function NoteEditModal({
     ) {
       const coords = [...(form.geometry as any).coordinates];
       if (coords.length >= 1) {
-        coords[0] = [form.longitude, form.latitude];
+        const normalized = coords.map((c) => [Number(c?.[0]) || 0, Number(c?.[1]) || 0]);
         payload.geometry = {
           type: "LineString",
-          coordinates: coords,
+          coordinates: normalized,
         };
+        payload.latitude = normalized[0][1];
+        payload.longitude = normalized[0][0];
       }
     }
 
@@ -374,8 +376,13 @@ export default function NoteEditModal({
                     <LocationMiniMap
                       lat={form.latitude}
                       lng={form.longitude}
-                      onChange={(p: { lat: number; lng: number }) =>
-                        update({ latitude: p.lat, longitude: p.lng })
+                      geometry={form.geometry as any}
+                      onChange={(p: { lat: number; lng: number; geometry?: any }) =>
+                        update({
+                          latitude: p.lat,
+                          longitude: p.lng,
+                          geometry: p.geometry ?? form?.geometry ?? null,
+                        })
                       }
                     />
                   </div>

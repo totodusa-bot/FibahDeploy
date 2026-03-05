@@ -40,20 +40,31 @@ const userIcon = new Icon({
   iconAnchor: [16, 16],
 });
 
+function getAssetColor(assetType?: string | null) {
+  switch (assetType) {
+    case "Conduit":
+      return "#f97316"; // orange
+    case "Cable":
+      return "#39ff14"; // neon green
+    case "Vault":
+      return "#7e22ce"; // purple
+    case "Cabinet":
+      return "#eab308"; // yellow
+    case "Flower Pot":
+      return "#14532d"; // dark green
+    case "Pedestal":
+      return "#111111"; // black
+    default:
+      return "#1e3a5f"; // fallback
+  }
+}
+
 const markerIcon = new Icon({
   iconUrl:
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='%23ff6b35'%3E%3Cpath d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'/%3E%3C/svg%3E",
   iconSize: [40, 40],
   iconAnchor: [20, 40],
   popupAnchor: [0, -40],
-});
-
-const existingNoteIcon = new Icon({
-  iconUrl:
-    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 24 24' fill='%231e3a5f'%3E%3Cpath d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'/%3E%3C/svg%3E",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-  popupAnchor: [0, -36],
 });
 
 const lineIcon = new Icon({
@@ -366,53 +377,8 @@ export default function MapView({
     existingNotes.forEach((note) => {
       const isLineAsset = note.asset_type === "Conduit" || note.asset_type === "Cable";
       const geom = note.geometry;
+      const assetColor = getAssetColor(note.asset_type);
 
-      // Draw line geometry first, if available
-      if (isLineAsset && geom && geom.type === "LineString" && Array.isArray(geom.coordinates)) {
-        const coords = (geom.coordinates as [number, number][]).map(
-          (c) => [c[1], c[0]] as [number, number] // [lat, lng]
-        );
-        if (coords.length >= 2) {
-          // Style line differently for Conduit vs Cable
-          const isConduit = note.asset_type === "Conduit";
-          const polyline = L.polyline(coords, {
-            weight: isConduit ? 3 : 4,
-            dashArray: isConduit ? "6 6" : undefined,
-          });
-          polyline.addTo(notesLayerRef.current!);
-
-          // Vertex markers along the line
-          coords.forEach((c, idx) => {
-            const v = L.circleMarker(c, {
-              radius: 4,
-            });
-            v.addTo(notesLayerRef.current!);
-          });
-
-          // Start & end markers with line icon
-          const start = coords[0];
-          const end = coords[coords.length - 1];
-
-          const startMarker = L.marker(start, {
-            icon: lineIcon,
-            keyboard: false,
-          });
-          const endMarker = L.marker(end, {
-            icon: lineIcon,
-            keyboard: false,
-          });
-
-          startMarker.addTo(notesLayerRef.current!);
-          endMarker.addTo(notesLayerRef.current!);
-        }
-      }
-
-      // Anchor marker/popup on the stored latitude/longitude (single point)
-      const markerIconForNote = isLineAsset ? lineIcon : existingNoteIcon;
-      const m = L.marker([note.latitude, note.longitude], {
-        icon: markerIconForNote,
-        keyboard: false,
-      });
       const html = `
         <div class="custom-popup">
           <div class="popup-project-name" style="font-weight:600;font-size:14px;margin-bottom:4px;border-bottom:2px solid rgba(255,255,255,.2);padding-bottom:6px;">
@@ -432,8 +398,35 @@ export default function MapView({
             <span class="popup-author-label" style="font-weight:600;">By:</span><span>${note.created_by_name}</span>
           </div>
         </div>`;
-      m.bindPopup(html, { className: "custom-popup" });
-      m.addTo(notesLayerRef.current!);
+
+      // Draw line geometry first, if available
+      if (isLineAsset && geom && geom.type === "LineString" && Array.isArray(geom.coordinates)) {
+        const coords = (geom.coordinates as [number, number][]).map(
+          (c) => [c[1], c[0]] as [number, number] // [lat, lng]
+        );
+        if (coords.length >= 2) {
+          const isConduit = note.asset_type === "Conduit";
+          const polyline = L.polyline(coords, {
+            color: assetColor,
+            weight: isConduit ? 5 : 6,
+            dashArray: isConduit ? "6 6" : undefined,
+          });
+          polyline.bindPopup(html, { className: "custom-popup" });
+          polyline.addTo(notesLayerRef.current!);
+          return;
+        }
+      }
+
+      // For point assets (and line fallback when no valid geometry), use a compact color marker.
+      const point = L.circleMarker([note.latitude, note.longitude], {
+        radius: 7,
+        color: assetColor,
+        fillColor: assetColor,
+        fillOpacity: 0.95,
+        weight: 2,
+      });
+      point.bindPopup(html, { className: "custom-popup" });
+      point.addTo(notesLayerRef.current!);
     });
   }, [existingNotes]);
   // render draft line for line assets while placing

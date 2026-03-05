@@ -135,7 +135,6 @@ export default function NoteForm({
                 <SelectValue placeholder="Select an asset type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Hand Hole">Hand Hole</SelectItem>
                 <SelectItem value="Vault">Vault</SelectItem>
                 <SelectItem value="Pedestal">Pedestal</SelectItem>
                 <SelectItem value="Flower Pot">Flower Pot</SelectItem>
